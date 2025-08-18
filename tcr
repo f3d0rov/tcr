@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# Check if in git repository, find it's .git directory if yes
+
+function get_parent_git_repo () {
+	if [ -d .git ]; then
+		echo .
+	else
+		echo $(git rev-parse --show-toplevel)
+	fi;
+}
+
+
+# Check if running from git
+GIT_DIR=$(get_parent_git_repo)
+
+if [ -z "$GIT_DIR" ]; then
+	echo Command should be used from a git repository, exiting.
+	exit 1
+fi
+
+TCR_START_FILE="${GIT_DIR}/.git/tcr-start"
+
+CLI_PARAMETER=$2
+
+function git_commit () {
+	if [ -n "$1" ]; then
+		git commit -m "$1"
+	else
+		git commit
+	fi
+}
+
+# Check the command
+# start - commits current edits into a temporary commit, saves the commit hash into TCR_FILE
+function start () {
+	echo Starting a TCR session...
+
+	if [ -e "$TCR_START_FILE" ]; then
+		echo A TCR session is already in progress.
+		exit 1
+	fi
+
+	GIT_EDITS=$(git status -s)
+	if [ -n "$GIT_EDITS" ]; then
+		echo Cannot start a TCR session when there are uncommited changes.
+		exit 1
+	fi
+
+	LAST_COMMIT_HASH=$(git rev-parse HEAD)
+	LAST_COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+	echo Last commit: "${LAST_COMMIT_MESSAGE}" / ${LAST_COMMIT_HASH}
+
+	# Save last commit hash to TCR_START_FILE
+	echo $LAST_COMMIT_HASH > $TCR_START_FILE
+}
+
+function commit () {
+	if [ ! -e "$TCR_START_FILE" ]; then
+		echo TCR session is not started. Use $0 start to initialize a session.
+		exit 1
+	fi
+
+	GIT_EDITS=$(git status -s)
+	if [ -z "$GIT_EDITS" ]; then
+		echo No changes to commit!
+		exit 1
+	fi
+
+	COMMIT_NAME="tcr commit"
+	if [ -n "$CLI_PARAMETER" ]; then
+		COMMIT_NAME=$CLI_PARAMETER
+	fi
+
+	git add --all
+	git_commit "$COMMIT_NAME"
+}
+
+function revert () {
+	if [ ! -e "$TCR_START_FILE"  ]; then
+		echo TCR session is not started. Use $0 start to initialize a session.
+		exit 1
+	fi
+
+	GIT_EDITS=$(git status -s)
+	if [ -z "$GIT_EDITS" ]; then
+		echo No changes to revert!
+		exit 1
+	fi
+
+	git reset --hard HEAD
+}
+
+function stop_tcr_session () {
+	rm -f $TCR_START_FILE
+}
+
+function exit_if_cant_finish_tcr_session () {
+	if [ ! -e "$TCR_START_FILE"  ]; then
+		echo TCR session is not started. Use $0 start to initialize a session.
+		exit 1
+	fi
+
+	GIT_EDITS=$(git status -s)
+	if [ -n "$GIT_EDITS" ]; then
+		echo Changes present in the working directory.
+		echo You should commit '('$0 commit')' or revert '('$0 revert')' the changes before completing the TCR session.
+		exit 1
+	fi
+
+	LAST_COMMIT_HASH=$(git rev-parse HEAD)
+	FIRST_COMMIT_HASH=$(<$TCR_START_FILE)
+	if [ "$LAST_COMMIT_HASH" == "$FIRST_COMMIT_HASH" ]; then
+		echo No changes were introduced during the session.
+		stop_tcr_session
+		exit 0
+	fi
+}
+
+function stop () {
+	exit_if_cant_finish_tcr_session
+	git reset --soft $FIRST_COMMIT_HASH
+	stop_tcr_session
+}
+
+function merge () {
+	exit_if_cant_finish_tcr_session
+	git reset --soft $FIRST_COMMIT_HASH
+	git_commit "$CLI_PARAMETER"
+	stop_tcr_session
+}
+
+function status () {
+	if [ ! -e "$TCR_START_FILE"  ]; then
+		echo TCR session is not started.
+		exit 0
+	fi
+
+	FIRST_COMMIT_HASH=$(<$TCR_START_FILE)
+	FIRST_COMMIT_NAME=$(git log -1 --pretty=format:%B $FIRST_COMMIT_HASH)
+	
+	HEAD_COMMITS_COUNT=$(git rev-list HEAD --count)
+	INITIAL_COMMITS_COUNT=$(git rev-list $FIRST_COMMIT_HASH --count)
+	ADDED_COMMITS=$(($HEAD_COMMITS_COUNT-$INITIAL_COMMITS_COUNT))
+
+	echo TCR session in progress
+	echo Base commit: \"$FIRST_COMMIT_NAME\" / $FIRST_COMMIT_HASH
+
+	if [ "$ADDED_COMMITS" -eq 0 ]; then
+		echo No commits made so far.
+	else
+		echo Commits made: $ADDED_COMMITS.
+	fi
+
+	git status --short
+}
+
+function print_help () {
+	echo '"test && commit || revert" utility tool'
+	echo '- Written by f3d0rov (https://github.com/f3d0rov)'
+	echo '- Based on the article by Kent Beck at https://medium.com/@kentbeck_7670/test-commit-revert-870bbd756864'
+	echo 
+	echo Available commands:
+	echo "  $0 status                             - prints the current status of the TCR session."
+	echo "  $0 start                              - starts a TCR session."
+	echo "  $0 commit "'"<optional commit message>"'" - commits current changes."
+	echo "  $0 revert                             - reverts current changes to the state of the last commit."
+	echo "  $0 done                               - stops the current TCR session. Performs a soft reset to the initial commit."
+	echo "  $0 merge "'"<optional commit message>"'"  - stops the current TCR session. Squashes the commited changes into a single commit."
+}
+
+COMMAND=$1
+
+if [ "$COMMAND" == "start" ]; then
+	start
+elif [ "$COMMAND" == "commit" ]; then
+	commit
+elif [ "$COMMAND" == "revert" ]; then
+	revert
+elif [ "$COMMAND" == "done" ]; then
+	stop
+elif [ "$COMMAND" == "merge" ]; then
+	merge
+elif [ "$COMMAND" == "status" ]; then
+	status
+elif [ "$COMMAND" == "help" ]; then
+	print_help
+else
+	echo Incorrect command: $COMMAND.
+	echo Use $0 help to get a list of supported commands.
+fi
