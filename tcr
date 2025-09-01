@@ -6,8 +6,14 @@ function get_parent_git_repo () {
 	if [ -d .git ]; then
 		echo .
 	else
-		echo $(git rev-parse --show-toplevel)
-	fi;
+		# Returns nothing if in root of a project w/ submodules
+		SUPERPROJ=$(git rev-parse --show-superproject-working-tree)
+		if [ -z "$SUPERPROJ" ]; then
+			echo $(git rev-parse --show-toplevel)
+		else
+			echo $SUPERPROJ # Submodules don't have .git directory so we have to use the superproject's one
+		fi
+	fi
 }
 
 
@@ -19,7 +25,10 @@ if [ -z "$GIT_DIR" ]; then
 	exit 1
 fi
 
-TCR_START_FILE="${GIT_DIR}/.git/tcr-start"
+# Name of the repository or submodule if called from one.
+MODULE_NAME=$(basename `git rev-parse --show-toplevel`)
+
+TCR_START_FILE="${GIT_DIR}/.git/tcr-start-${MODULE_NAME}"
 
 CLI_PARAMETER=$2
 

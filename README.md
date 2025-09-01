@@ -1,14 +1,14 @@
 # tcr
 `tcr` is a "test &amp;&amp; commit || revert" utility tool written for bash.
 
-It manipulates `git` in order to simplify commiting and reverting changes.
+It manipulates `git` in order to simplify commiting and reverting small changes in batches.
 
 ## Installation
 `tcr` is a simple bash script. You can download it and use it directly via `./tcr`, or you can save it to the `/usr/local/bin` directory so that it would be avaliable from anywhere.
 
 ## Usage
 
-The tool should be used from an initialized git repository. `tcr help` will print the list of available commands:
+The tool should be used from an initialized git repository or a submodule. `tcr help` will print the list of available commands:
 ```
 Available commands:
   ./tcr status                             - prints the current status of the TCR session.
